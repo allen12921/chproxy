@@ -57,6 +57,11 @@ type Config struct {
 
 	Users []User `yaml:"users"`
 
+	RateLimitHeaderName string `yaml:"rate_limit_header_name"`
+
+	RateLimitTokenPerSec int `yaml:"rate_limit_token_per_second"`
+
+	EnableRateLimitByHeader int `yaml:"rate_limit_by_header"`
 	// Whether to print debug logs
 	LogDebug bool `yaml:"log_debug,omitempty"`
 

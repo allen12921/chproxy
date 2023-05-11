@@ -1,0 +1,26 @@
+log_debug: false
+rate_limit_token_per_second: 100
+rate_limit_header_name: "form_id"
+rate_limit_by_header: 1
+
+server:
+  http:
+      listen_addr: ":9090"
+      allowed_networks: ["127.0.0.0/24"]
+users:
+  - name: "test_*"
+    to_cluster: "default"
+    to_user: "admin"
+    is_wildcarded: Yes
+  - name: "admin"
+    password: "admin"
+    to_cluster: "default"
+    to_user: "admin"
+clusters:
+  - name: "default"
+    nodes: ["127.0.0.1:8123"]
+    users:
+    - name: "admin"
+      password: "admin"
+    - name: "dba"
+      password: "dba_egress_pass"

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"golang.org/x/time/rate"
+	"io/ioutil"
+	"sync"
 	"context"
 	"crypto/tls"
 	"flag"
@@ -72,7 +75,6 @@ func main() {
 			}
 		}
 	}()
-
 	server := cfg.Server
 	if len(server.HTTP.ListenAddr) == 0 && len(server.HTTPS.ListenAddr) == 0 {
 		panic("BUG: broken config validation - `listen_addr` is not configured")
@@ -207,6 +209,18 @@ func serveHTTP(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	//add rate limit by http header
+        formID := r.Header.Get(rateLimitHeaderName)
+        if formID != ""  && enableRateLimitByHeader != 0 {
+	   limiter := getLimiter(formID,tokenPerSec,bucketSize)
+           if !limiter.Allow() {
+		http.Error(rw, "Rate limit exceeded", http.StatusTooManyRequests)
+		Body, _ := ioutil.ReadAll(r.Body)
+		log.Infof("Exceed rate limit form: %s ;request_body: %s ",formID,Body)
+		return
+           }
+	}
+
 	switch r.URL.Path {
 	case "/favicon.ico":
 	case "/metrics":
@@ -258,6 +272,11 @@ func loadConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("can't load config %q: %w", *configFile, err)
 	}
+        limiter = make(map[string]*rate.Limiter)
+        tokenPerSec = cfg.RateLimitTokenPerSec
+        bucketSize = cfg.RateLimitTokenPerSec
+        rateLimitHeaderName = cfg.RateLimitHeaderName
+        enableRateLimitByHeader = cfg.EnableRateLimitByHeader
 	return cfg, nil
 }
 
@@ -294,9 +313,9 @@ func reloadConfig() error {
 }
 
 var (
-	buildTag      = "unknown"
-	buildRevision = "unknown"
-	buildTime     = "unknown"
+	buildTag      = "1.24.0"
+	buildRevision = "rate_limit_by_header_byAllen"
+	buildTime     = "20230510"
 )
 
 func versionString() string {
@@ -305,4 +324,25 @@ func versionString() string {
 		ver = "unknown"
 	}
 	return fmt.Sprintf("chproxy ver. %s, rev. %s, built at %s", ver, buildRevision, buildTime)
+}
+
+var (
+	tokenPerSec = 0
+	bucketSize  = 0
+	enableRateLimitByHeader = 0
+	rateLimitHeaderName = "form_id"
+	mu sync.Mutex
+	limiter = make(map[string]*rate.Limiter)
+)
+
+func getLimiter(formID string, tokenPerSec int, bucketSize int) *rate.Limiter {
+	mu.Lock()
+	defer mu.Unlock()
+
+	lim, exists := limiter[formID]
+	if !exists {
+		lim = rate.NewLimiter(rate.Every(time.Second/time.Duration(tokenPerSec)),bucketSize)
+		limiter[formID] = lim
+	}
+	return lim
 }
